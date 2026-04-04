@@ -61,7 +61,12 @@ async function runDigest(hours: number, outputDir: string) {
     }
   }
 
-  const allArticles = results.flatMap((r) => r.articles);
+  const seen = new Set<string>();
+  const allArticles = results.flatMap((r) => r.articles).filter((a) => {
+    if (seen.has(a.link)) return false;
+    seen.add(a.link);
+    return true;
+  });
 
   console.log(`\nGenerating AI summaries for ${allArticles.length} articles ...`);
   const summarized = await summarizeArticles(allArticles);
