@@ -8,6 +8,7 @@ import type { FeedConfig, FetchResult } from "./types";
 import { fetchFeed } from "./fetcher";
 import { summarizeArticles } from "./summarizer";
 import { buildReport } from "./formatter";
+import { sendDigestEmail } from "./mailer";
 
 /** RSS/Atom feed sources to include in every digest run. */
 const FEEDS: FeedConfig[] = [
@@ -98,9 +99,12 @@ async function runDigest(hours: number, outputDir: string) {
   // Write the report; mkdir is idempotent thanks to { recursive: true }.
   await mkdir(outputDir, { recursive: true });
   const filename = join(outputDir, `${now.toISOString().slice(0, 10)}.md`);
-  await writeFile(filename, buildReport(summarized, now), "utf-8");
+  const report = buildReport(summarized, now);
+  await writeFile(filename, report, "utf-8");
 
   console.log(`\nReport → ${filename}  (${summarized.length} total articles)`);
+
+  await sendDigestEmail(report, summarized, now.toISOString().slice(0, 10));
 }
 
 /**
