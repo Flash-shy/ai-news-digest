@@ -1,21 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Article } from "./types";
 
-// Use the Anthropic SDK pointed at OpenRouter so we can access any model
-// through a single API key. The defaultHeaders identify our app to OpenRouter.
-const client = new Anthropic({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-  defaultHeaders: {
-    "HTTP-Referer": "https://github.com/ai-news-digest",
-    "X-Title": "AI News Digest",
-  },
-});
+const BASE_URL = process.env.BASE_URL ?? "https://ai.xiaoye.io/v1";
+const FORMAT = process.env.API_FORMAT ?? "openai";
 
-/**
- * Build the prompt sent to the AI for each article.
- * Keeping the prompt short and directive keeps output consistent and token usage low.
- */
+const anthropicClient = FORMAT === "anthropic"
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: BASE_URL })
+  : null;
+
 const PROMPT = (title: string, description: string) =>
   `Given this article:
 Title: ${title}
@@ -24,37 +16,45 @@ Description: ${description}
 Write a single sentence (max 30 words) summarizing what this article is about.
 Reply with only the sentence, no preamble.`;
 
-/**
- * Summarize a single article using claude-3-haiku via OpenRouter.
- *
- * Falls back to the raw feed description if the API call fails,
- * so a network or quota error never blocks the whole digest run.
- */
+async function summarizeWithOpenAI(title: string, input: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL ?? "gpt-5.3-codex",
+      max_tokens: 80,
+      messages: [{ role: "user", content: PROMPT(title, input) }],
+    }),
+  });
+  const data = await res.json() as any;
+  return data?.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+async function summarizeWithAnthropic(title: string, input: string): Promise<string> {
+  const message = await anthropicClient!.messages.create({
+    model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
+    max_tokens: 80,
+    messages: [{ role: "user", content: PROMPT(title, input) }],
+  });
+  return message.content[0].type === "text" ? message.content[0].text.trim() : "";
+}
+
 async function summarizeOne(article: Article): Promise<Article> {
-  // Prefer the stripped feed description as context; fall back to the title only.
   const input = article.rawDescription ?? article.title;
   try {
-    const message = await client.messages.create({
-      model: "anthropic/claude-3-haiku",
-      max_tokens: 80,   // one sentence needs very few tokens
-      messages: [
-        { role: "user", content: PROMPT(article.title, input) },
-      ],
-    });
-    const text =
-      message.content[0].type === "text" ? message.content[0].text.trim() : "";
+    const text = FORMAT === "anthropic"
+      ? await summarizeWithAnthropic(article.title, input)
+      : await summarizeWithOpenAI(article.title, input);
     return { ...article, summary: text || article.rawDescription };
   } catch (err) {
     console.error(`  [summarizer] ${article.title.slice(0, 50)}: ${err}`);
-    // Graceful degradation: keep the article without an AI summary.
     return { ...article, summary: article.rawDescription };
   }
 }
 
-/**
- * Summarize all articles concurrently.
- * Uses Promise.allSettled so a single failure never rejects the entire batch.
- */
 export async function summarizeArticles(articles: Article[]): Promise<Article[]> {
   const results = await Promise.allSettled(articles.map(summarizeOne));
   return results.map((r, i) =>

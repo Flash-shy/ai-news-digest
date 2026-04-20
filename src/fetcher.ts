@@ -70,7 +70,9 @@ export async function fetchFeed(
   config: FeedConfig,
   cutoff: Date
 ): Promise<Article[]> {
-  const res = await fetch(config.url);
+  const res = await fetch(config.url, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; ai-news-digest/1.0)" },
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   const xml = await res.text();
