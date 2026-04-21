@@ -10,6 +10,13 @@ import { summarizeArticles } from "./summarizer";
 import { buildReport } from "./formatter";
 import { sendDigestEmail } from "./mailer";
 
+// Prepend ISO timestamp to every log line so cron.log entries are traceable.
+const _log = console.log.bind(console);
+const _err = console.error.bind(console);
+const ts = () => `[${new Date().toISOString()}]`;
+console.log = (...a) => _log(ts(), ...a);
+console.error = (...a) => _err(ts(), ...a);
+
 /** RSS/Atom feed sources to include in every digest run. */
 const FEEDS: FeedConfig[] = [
   {

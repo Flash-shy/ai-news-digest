@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Article } from "./types";
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 const BASE_URL = process.env.BASE_URL ?? "https://ai.xiaoye.io/v1";
 const FORMAT = process.env.API_FORMAT ?? "openai";
 
@@ -44,15 +46,22 @@ async function summarizeWithAnthropic(title: string, input: string): Promise<str
 
 async function summarizeOne(article: Article): Promise<Article> {
   const input = article.rawDescription ?? article.title;
-  try {
-    const text = FORMAT === "anthropic"
-      ? await summarizeWithAnthropic(article.title, input)
-      : await summarizeWithOpenAI(article.title, input);
-    return { ...article, summary: text || article.rawDescription };
-  } catch (err) {
-    console.error(`  [summarizer] ${article.title.slice(0, 50)}: ${err}`);
-    return { ...article, summary: article.rawDescription };
+  const maxAttempts = 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const text = FORMAT === "anthropic"
+        ? await summarizeWithAnthropic(article.title, input)
+        : await summarizeWithOpenAI(article.title, input);
+      return { ...article, summary: text || article.rawDescription };
+    } catch (err) {
+      if (attempt < maxAttempts - 1) {
+        await sleep(2000 * (attempt + 1));
+        continue;
+      }
+      console.error(`  [summarizer] ${article.title.slice(0, 50)}: ${err}`);
+    }
   }
+  return { ...article, summary: article.rawDescription };
 }
 
 export async function summarizeArticles(articles: Article[]): Promise<Article[]> {

@@ -2,6 +2,8 @@ import { Resend } from "resend";
 import { marked } from "marked";
 import type { Article } from "./types";
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 function buildHtml(markdown: string, date: string): string {
@@ -39,13 +41,23 @@ export async function sendDigestEmail(markdown: string, articles: Article[], dat
   const to = process.env.EMAIL_TO ?? "shy971008@gmail.com";
   const html = buildHtml(markdown, date);
 
-  const { error } = await resend.emails.send({
-    from: "AI News Digest <onboarding@resend.dev>",
-    to,
-    subject: `AI News Digest — ${date} (${articles.length} articles)`,
-    html,
-  });
-
-  if (error) throw new Error(`Email send failed: ${error.message}`);
-  console.log(`Email sent to ${to}`);
+  const maxAttempts = 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { error } = await resend.emails.send({
+      from: "AI News Digest <onboarding@resend.dev>",
+      to,
+      subject: `AI News Digest — ${date} (${articles.length} articles)`,
+      html,
+    });
+    if (!error) {
+      console.log(`Email sent to ${to}`);
+      return;
+    }
+    if (attempt < maxAttempts - 1) {
+      console.error(`Email attempt ${attempt + 1} failed (${error.message}), retrying in 10s...`);
+      await sleep(10_000);
+    } else {
+      throw new Error(`Email send failed after ${maxAttempts} attempts: ${error.message}`);
+    }
+  }
 }

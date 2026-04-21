@@ -1,6 +1,13 @@
 import { XMLParser } from "fast-xml-parser";
 import type { FeedConfig, Article } from "./types";
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+  "AppleWebKit/537.36 (KHTML, like Gecko) " +
+  "Chrome/124.0.0.0 Safari/537.36";
+
 // fast-xml-parser instance — ignoreAttributes:false preserves XML attributes
 // like href on Atom <link> elements.
 const parser = new XMLParser({ ignoreAttributes: false });
@@ -70,12 +77,25 @@ export async function fetchFeed(
   config: FeedConfig,
   cutoff: Date
 ): Promise<Article[]> {
-  const res = await fetch(config.url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; ai-news-digest/1.0)" },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const maxAttempts = 3;
+  let res: Response | undefined;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      res = await fetch(config.url, {
+        headers: {
+          "User-Agent": BROWSER_UA,
+          "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        },
+      });
+      break;
+    } catch (err) {
+      if (attempt < maxAttempts - 1) { await sleep(3000 * (attempt + 1)); continue; }
+      throw err;
+    }
+  }
+  if (!res!.ok) throw new Error(`HTTP ${res!.status}`);
 
-  const xml = await res.text();
+  const xml = await res!.text();
   const data = parser.parse(xml);
 
   // Normalise both RSS and Atom structures into a flat array of raw items.
